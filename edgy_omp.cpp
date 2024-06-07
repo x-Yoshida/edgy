@@ -95,6 +95,7 @@ struct AppFlags
     bool show = false;
     bool file_output = false;
     int threshold = 100;
+    long frames=LONG_MAX;
 };
 
 std::vector<std::string> MakeArgvIntoString(int argc, char** argv)
@@ -110,44 +111,59 @@ std::vector<std::string> MakeArgvIntoString(int argc, char** argv)
 void HandleFlags(std::vector<std::string> &args,AppFlags &flags)
 {
     for(int i = 2;i<args.size();i++)
+    {
+        
+        if(args[i]=="-th" || args[i]=="--threshold")
         {
-            
-            if(args[i]=="-th" || args[i]=="--threshold")
+            if(++i<args.size() && args[i][0]!='-')
             {
-                if(++i<args.size() && args[i][0]!='-')
+                flags.threshold = std::stoi(args[i]);
+                if(flags.threshold>3*255)
                 {
-                    flags.threshold = std::stoi(args[i]);
-                    if(flags.threshold>3*255)
-                    {
-                        std::cout<<"Max possible threshold " << 3*255 << std::endl;
-                        flags.threshold = 3*255;
-                    }
+                    std::cout<<"Max possible threshold " << 3*255 << std::endl;
+                    flags.threshold = 3*255;
                 }
-                else
-                {
-                    std::cout<<"Didn't provided number of threads. Skipping...\n";
-                }
-                continue;
-
             }
-
-            if(args[i]=="-s" || args[i]=="--show")
+            else
             {
-                flags.show = true;
-                continue;
+                std::cout<<"Didn't provided number of threads. Skipping...\n";
             }
-            if(args[i]=="-fo" || args[i]=="--file")
-            {
-                flags.file_output = true;
-                continue;
-            }
+            continue;
+
         }
+        
+        if(args[i]=="-f" || args[i]=="--frames")
+        {
+            if(++i<args.size() && args[i][0]!='-')
+            {
+                flags.frames = std::stoi(args[i]);
+                
+            }
+            else
+            {
+                std::cout<<"Didn't provided number of threads. Skipping...\n";
+            }
+            continue;
+
+        }
+
+        if(args[i]=="-s" || args[i]=="--show")
+        {
+            flags.show = true;
+            continue;
+        }
+        if(args[i]=="-fo" || args[i]=="--file")
+        {
+            flags.file_output = true;
+            continue;
+        }
+    }
 }
 
-void DetectEdges(Color* input,Color* output, ImgData data,int threshold)
+void DetectEdges(Color* input,Color* output,const ImgData& data,const int& threshold)
 {
 
-    #pragma omp parallel for
+    #pragma omp parallel for default(none) shared(input,output,data,threshold)
     for(int i=0;i<data.height*data.width;i+=1)
     {
         bool done=false;
@@ -188,23 +204,29 @@ void DetectEdges(Color* input,Color* output, ImgData data,int threshold)
     
 }
 
-void Setup(const std::string path,const int &threshold)
+void Setup(const std::string path,const AppFlags &flags)
 {
     cv::VideoCapture cap(path);
-    int fps=cap.get(cv::CAP_PROP_FPS);
-    int fc=cap.get(cv::CAP_PROP_FRAME_COUNT);
-    int duration=std::ceil((float)fc/(float)fps);
-    std::cout << fps << std::endl;
-    std::cout << fc << std::endl;
-    std::cout << duration << std::endl;
-    std::cout << cap.get(cv::CAP_PROP_FRAME_WIDTH) << std::endl;
-    std::cout << cap.get(cv::CAP_PROP_FRAME_HEIGHT ) << std::endl;
+
+
+    // Remains of testing library
+    // int fps=cap.get(cv::CAP_PROP_FPS);
+    // int fc=cap.get(cv::CAP_PROP_FRAME_COUNT);
+    // int duration=std::ceil((float)fc/(float)fps);
+    // std::cout << fps << std::endl;
+    // std::cout << fc << std::endl;
+    // std::cout << duration << std::endl;
+    // std::cout << cap.get(cv::CAP_PROP_FRAME_WIDTH) << std::endl;
+    // std::cout << cap.get(cv::CAP_PROP_FRAME_HEIGHT ) << std::endl;
+
 
     if(!cap.isOpened()){
         std::cout << "Error opening video stream or file" << std::endl;
         exit(-1);
     }
     
+    auto start = std::chrono::high_resolution_clock::now();
+
     cv::Mat frame;
     
     //Captures first frame
@@ -215,18 +237,32 @@ void Setup(const std::string path,const int &threshold)
     ImgData data = {frame.cols,frame.rows,frame.step};
     
     Color *d_input = new Color[frame.cols * frame.rows];
-    Color *d_output = new Color[frame.cols * frame.rows];;
-    int i=0;    
-    while(!frame.empty())
+    Color *d_output = new Color[frame.cols * frame.rows];
+    // #pragma omp parallel
+    // {
+    //     std::cout<< "Thread: " << omp_get_thread_num() << std::endl;
+    // }
+    long i=0;    
+
+    while(i<flags.frames && !frame.empty())
     {
         memcpy(d_input,frame.ptr(),colorBytes);
 
-        DetectEdges(d_input,d_output,data,threshold);
+        DetectEdges(d_input,d_output,data,flags.threshold);
 
         cap>>frame;
         i++;
     }
-    std::cout << i << std::endl;
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    
+    // Calculate the elapsed time
+    std::chrono::duration<double> elapsed = end - start;
+
+
+    // std::cout << "Frames processed: " << i << std::endl;
+    std::cout << "Execution time: " << elapsed.count() << std::endl;
+    
     //Not doing output because we only mesure how long algorithm takes (Probably will do output in free time)
 
     // memcpy(output.ptr(),d_output,colorBytes);
@@ -254,7 +290,7 @@ int main(int argc, char** argv)
     }
     
 
-    Setup(path,flags.threshold);
+    Setup(path,flags);
 
 
     return EXIT_SUCCESS;

@@ -23,3 +23,8 @@ endif()
 add_executable(edgy_cuda edgy_cuda.cu)
 
 target_link_libraries(edgy_cuda ${OpenCV_LIBS})
+
+
+add_executable(edgy_seq edgy_seq.cpp)
+
+target_link_libraries(edgy_seq ${OpenCV_LIBS})
